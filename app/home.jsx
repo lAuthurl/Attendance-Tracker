@@ -227,7 +227,22 @@ export default function HomeScreen() {
 
   const handleRecordAttendance = async (attendance) => {
     try {
-      await recordAttendance(attendance.id, true, new Date().toISOString());
+      // Check if this attendance is already recorded today
+      const isAlreadyRecorded = attendanceHistory.some(
+        (record) =>
+          record.attendanceId === attendance.id &&
+          record.taken &&
+          new Date(record.timestamp).toDateString() ===
+            new Date().toDateString()
+      );
+
+      // Toggle the attendance record
+      await recordAttendance(
+        attendance.id,
+        !isAlreadyRecorded, // if recorded, unrecord it (false), if not recorded, record it (true)
+        new Date().toISOString()
+      );
+
       await loadAttendances(); // Reload data after recording
     } catch (error) {
       console.error("Error recording attendance:", error);
@@ -363,14 +378,17 @@ export default function HomeScreen() {
                     </View>
                   </View>
                   {taken ? (
-                    <View style={[styles.takenBadge]}>
+                    <TouchableOpacity
+                      style={[styles.takenBadge]}
+                      onPress={() => handleRecordAttendance(attendance)}
+                    >
                       <Ionicons
                         name="checkmark-circle"
                         size={20}
                         color="#4CAF50"
                       />
-                      <Text style={styles.takenText}>Recorded</Text>
-                    </View>
+                      <Text style={styles.takenText}>Tap to Undo</Text>
+                    </TouchableOpacity>
                   ) : (
                     <TouchableOpacity
                       style={[
