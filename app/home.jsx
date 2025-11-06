@@ -18,16 +18,14 @@ import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Circle } from "react-native-svg";
 import {
   getAttendances,
-  Attendance,
   getTodaysAttendances,
   recordAttendance,
-  AttendanceRecord,
-} from "../utils/storage";
+} from "../utils/storage.js";
 import { useFocusEffect } from "@react-navigation/native";
 import {
   registerForPushNotificationsAsync,
   scheduleAttendanceReminder,
-} from "../utils/notifications";
+} from "../utils/notifications.js";
 
 const { width } = Dimensions.get("window");
 
@@ -36,46 +34,36 @@ const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 const QUICK_ACTIONS = [
   {
-    icon: "add-circle-outline" as const,
+    icon: "add-circle-outline",
     label: "Add\nAttendance",
-    route: "/attendance/add" as const,
+    route: "/attendance/add",
     color: "#2E7D32",
-    gradient: ["#4CAF50", "#2E7D32"] as [string, string],
+    gradient: ["#4CAF50", "#2E7D32"],
   },
   {
-    icon: "calendar-outline" as const,
+    icon: "calendar-outline",
     label: "Calendar\nView",
-    route: "/calendar" as const,
+    route: "/calendar",
     color: "#1976D2",
-    gradient: ["#2196F3", "#1976D2"] as [string, string],
+    gradient: ["#2196F3", "#1976D2"],
   },
   {
-    icon: "time-outline" as const,
+    icon: "time-outline",
     label: "History\nLog",
-    route: "/history" as const,
+    route: "/history",
     color: "#C2185B",
-    gradient: ["#E91E63", "#C2185B"] as [string, string],
+    gradient: ["#E91E63", "#C2185B"],
   },
   {
-    icon: "people-outline" as const,
+    icon: "people-outline",
     label: "Records\nTracker",
-    route: "/records" as const, // Ensure this is the correct route
+    route: "/records",
     color: "#E64A19",
-    gradient: ["#FF5722", "#E64A19"] as [string, string],
+    gradient: ["#FF5722", "#E64A19"],
   },
 ];
 
-interface CircularProgressProps {
-  progress: number;
-  totalRecords: number;
-  completedRecords: number;
-}
-
-function CircularProgress({
-  progress,
-  totalRecords,
-  completedRecords,
-}: CircularProgressProps) {
+function CircularProgress({ progress, totalRecords, completedRecords }) {
   const animatedValue = useRef(new Animated.Value(0)).current;
   const size = width * 0.55;
   const strokeWidth = 15;
@@ -134,12 +122,10 @@ function CircularProgress({
 export default function HomeScreen() {
   const router = useRouter();
   const [showNotifications, setShowNotifications] = useState(false);
-  const [attendances, setAttendances] = useState<Attendance[]>([]);
-  const [todaysAttendances, setTodaysAttendances] = useState<Attendance[]>([]);
+  const [attendances, setAttendances] = useState([]);
+  const [todaysAttendances, setTodaysAttendances] = useState([]);
   const [completedRecords, setCompletedRecords] = useState(0);
-  const [attendanceHistory, setAttendanceHistory] = useState<
-    AttendanceRecord[]
-  >([]);
+  const [attendanceHistory, setAttendanceHistory] = useState([]);
 
   const loadAttendances = useCallback(async () => {
     try {
@@ -165,7 +151,9 @@ export default function HomeScreen() {
                 startDate.getTime() + durationDays * 24 * 60 * 60 * 1000
               ))
         ) {
-          return true;
+          // Check if attendance is scheduled for today's day of week
+          const dayOfWeek = today.getDay(); // 0-6 for Sunday-Saturday
+          return attendance.schedule.some((day) => day.dayNumber === dayOfWeek);
         }
         return false;
       });
@@ -237,7 +225,7 @@ export default function HomeScreen() {
     }, [loadAttendances])
   );
 
-  const handleRecordAttendance = async (attendance: Attendance) => {
+  const handleRecordAttendance = async (attendance) => {
     try {
       await recordAttendance(attendance.id, true, new Date().toISOString());
       await loadAttendances(); // Reload data after recording
@@ -247,7 +235,7 @@ export default function HomeScreen() {
     }
   };
 
-  const isAttendanceRecorded = (attendanceId: string) => {
+  const isAttendanceRecorded = (attendanceId) => {
     return attendanceHistory.some(
       (record) => record.attendanceId === attendanceId && record.taken
     );
@@ -363,7 +351,15 @@ export default function HomeScreen() {
                     </View>
                     <View style={styles.recordTime}>
                       <Ionicons name="time-outline" size={16} color="#666" />
-                      <Text style={styles.timeText}>{attendance.times[0]}</Text>
+                      <Text style={styles.timeText}>
+                        {(() => {
+                          const dayOfWeek = new Date().getDay();
+                          const daySchedule = attendance.schedule.find(
+                            (d) => d.dayNumber === dayOfWeek
+                          );
+                          return daySchedule?.times[0] || "No times set";
+                        })()}
+                      </Text>
                     </View>
                   </View>
                   {taken ? (
@@ -423,7 +419,13 @@ export default function HomeScreen() {
                     {attendance.category}
                   </Text>
                   <Text style={styles.notificationTime}>
-                    {attendance.times[0]}
+                    {(() => {
+                      const dayOfWeek = new Date().getDay();
+                      const daySchedule = attendance.schedule.find(
+                        (d) => d.dayNumber === dayOfWeek
+                      );
+                      return daySchedule?.times[0] || "No times set";
+                    })()}
                   </Text>
                 </View>
               </View>

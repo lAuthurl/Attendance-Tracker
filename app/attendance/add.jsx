@@ -17,78 +17,69 @@ import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
-import { addAttendance } from "../../utils/storage";
+import { addAttendance } from "../../utils/storage.js";
 import {
   scheduleAttendanceReminder,
   scheduleCapacityReminder,
-} from "../../utils/notifications";
+} from "../../utils/notifications.js";
 
 const { width } = Dimensions.get("window");
 
-const FREQUENCIES = [
-  {
-    id: "1",
-    label: "Once daily",
-    icon: "sunny-outline" as const,
-    times: ["09:00"],
-  },
-  {
-    id: "2",
-    label: "Twice daily",
-    icon: "sync-outline" as const,
-    times: ["09:00", "21:00"],
-  },
-  {
-    id: "3",
-    label: "Once weekly",
-    icon: "time-outline" as const,
-    times: ["09:00"],
-  },
-  {
-    id: "4",
-    label: "Twice weekly",
-    icon: "repeat-outline" as const,
-    times: ["09:00", "17:00"],
-  },
-  { id: "5", label: "As needed", icon: "calendar-outline" as const, times: [] },
+// Define available time slots that can be used for each day
+const DEFAULT_TIMES = [
+  "08:00",
+  "09:00",
+  "10:00",
+  "11:00",
+  "12:00",
+  "13:00",
+  "14:00",
+  "15:00",
+  "16:00",
+  "17:00",
+  "18:00",
+  "19:00",
 ];
 
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
 const DURATIONS = [
-  { id: "1", label: "7 days", value: 7 },
-  { id: "2", label: "14 days", value: 14 },
-  { id: "3", label: "30 days", value: 30 },
-  { id: "4", label: "90 days", value: 90 },
-  { id: "5", label: "Ongoing", value: -1 },
-  { id: "6", label: "Custom", value: 0 },
+  { id: "1", label: "7 days", value: 7, icon: "calendar" },
+  { id: "2", label: "14 days", value: 14, icon: "calendar" },
+  { id: "3", label: "30 days", value: 30, icon: "calendar" },
+  { id: "4", label: "90 days", value: 90, icon: "calendar" },
+  { id: "5", label: "Ongoing", value: -1, icon: "infinite" },
+  { id: "6", label: "Custom", value: 0, icon: "create" },
 ];
 
 export default function AddAttendanceScreen() {
   const router = useRouter();
-  const [form, setForm] = useState<any>({
+
+  const [form, setForm] = useState({
     name: "",
     category: "",
-    frequency: "",
     duration: "",
     startDate: new Date(),
-    times: ["09:00"],
     notes: "",
     reminderEnabled: true,
     capacityReminder: false,
     currentCapacity: "",
     capacityAlertAt: "",
-    days: [],
     customDurationDays: "",
+    schedule: WEEKDAYS.map((_, index) => ({
+      day: index,
+      times: [],
+    })),
   });
 
-  const [errors, setErrors] = useState<{ [key: string]: string }>({});
+  const [errors, setErrors] = useState({});
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [selectedFrequency, setSelectedFrequency] = useState("");
   const [selectedDuration, setSelectedDuration] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const validateForm = () => {
-    const newErrors: { [key: string]: string } = {};
+    const newErrors = {};
 
     if (!form.name.trim()) {
       newErrors.name = "Attendance name is required";
@@ -98,8 +89,10 @@ export default function AddAttendanceScreen() {
       newErrors.category = "Category is required";
     }
 
-    if (!form.frequency) {
-      newErrors.frequency = "Frequency is required";
+    // Ensure at least one day has times scheduled
+    const hasScheduledTimes = form.schedule.some((day) => day.times.length > 0);
+    if (!hasScheduledTimes) {
+      newErrors.schedule = "Please schedule at least one time";
     }
 
     if (!form.duration) {
@@ -153,9 +146,18 @@ export default function AddAttendanceScreen() {
             : ""
           : form.duration;
 
+      // Convert schedule to simpler format for storage
+      const scheduledDays = form.schedule
+        .map((day, index) => ({
+          dayNumber: index,
+          times: day.times,
+        }))
+        .filter((day) => day.times.length > 0);
+
       const attendanceData = {
         id: Math.random().toString(36).substr(2, 9),
         ...form,
+        schedule: scheduledDays,
         duration: durationForSave,
         currentCapacity: form.currentCapacity
           ? Number(form.currentCapacity)
@@ -168,14 +170,14 @@ export default function AddAttendanceScreen() {
         color: randomColor,
       };
 
-      await addAttendance(attendanceData as any);
+      await addAttendance(attendanceData);
 
       // Schedule reminders if enabled
       if (attendanceData.reminderEnabled) {
-        await scheduleAttendanceReminder(attendanceData as any);
+        await scheduleAttendanceReminder(attendanceData);
       }
       if (attendanceData.capacityReminder) {
-        await scheduleCapacityReminder(attendanceData as any);
+        await scheduleCapacityReminder(attendanceData);
       }
 
       Alert.alert(
@@ -202,103 +204,78 @@ export default function AddAttendanceScreen() {
     }
   };
 
-  const handleFrequencySelect = (freq: string) => {
-    setSelectedFrequency(freq);
-    const selectedFreq = FREQUENCIES.find((f) => f.label === freq);
-
-    setForm((prev: any) => {
-      let times = [];
-      if (freq === "Twice daily") {
-        times = ["09:00", "21:00"];
-      } else if (freq === "Once daily") {
-        times = ["09:00"];
-      } else if (freq === "As needed") {
-        // For "As needed", create time slots based on selected days
-        times = prev.days.map(() => "09:00");
-      } else {
-        times = selectedFreq?.times || [];
-      }
-
-      return {
-        ...prev,
-        frequency: freq,
-        times,
-      };
-    });
-
-    if (errors.frequency) {
-      setErrors((prev) => ({ ...prev, frequency: "" }));
-    }
+  const handleDayScheduleChange = (dayIndex, times) => {
+    setForm((prev) => ({
+      ...prev,
+      schedule: prev.schedule.map((daySchedule, index) =>
+        index === dayIndex ? { ...daySchedule, times } : daySchedule
+      ),
+    }));
   };
 
-  const toggleDay = (day: string) => {
-    setForm((prev: any) => {
-      const days: string[] = prev.days || [];
-      let newDays;
-      if (days.includes(day)) {
-        newDays = days.filter((d: any) => d !== day);
-      } else {
-        newDays = [...days, day];
-      }
-
-      // Update times based on new days selection
-      const times =
-        form.frequency === "As needed"
-          ? newDays.map(() => "09:00")
-          : prev.times;
-
-      return {
-        ...prev,
-        days: newDays,
-        times,
-      };
-    });
-  };
-
-  const handleDurationSelect = (dur: string) => {
+  const handleDurationSelect = (dur) => {
     setSelectedDuration(dur);
-    setForm((prev: any) => ({ ...prev, duration: dur }));
+    setForm((prev) => ({ ...prev, duration: dur }));
     if (errors.duration) {
       setErrors((prev) => ({ ...prev, duration: "" }));
     }
   };
 
-  const renderFrequencyOptions = () => {
+  const renderScheduleOptions = () => {
     return (
-      <View style={styles.optionsGrid}>
-        {FREQUENCIES.map((freq) => (
-          <TouchableOpacity
-            key={freq.id}
-            style={[
-              styles.optionCard,
-              selectedFrequency === freq.label && styles.selectedOptionCard,
-            ]}
-            onPress={() => {
-              setSelectedFrequency(freq.label);
-              setForm({ ...form, frequency: freq.label });
-            }}
-          >
-            <View
-              style={[
-                styles.optionIcon,
-                selectedFrequency === freq.label && styles.selectedOptionIcon,
-              ]}
-            >
-              <Ionicons
-                name={freq.icon}
-                size={24}
-                color={selectedFrequency === freq.label ? "white" : "#666"}
-              />
+      <View style={styles.scheduleContainer}>
+        {WEEKDAYS.map((day, index) => (
+          <View key={day} style={styles.daySchedule}>
+            <View style={styles.dayHeader}>
+              <Text style={styles.dayName}>{day}</Text>
+              <TouchableOpacity
+                style={styles.addTimeButton}
+                onPress={() => {
+                  const daySchedule = form.schedule[index];
+                  handleDayScheduleChange(index, [
+                    ...daySchedule.times,
+                    DEFAULT_TIMES[0],
+                  ]);
+                }}
+              >
+                <Ionicons name="add-circle-outline" size={24} color="#1a8e2d" />
+              </TouchableOpacity>
             </View>
-            <Text
-              style={[
-                styles.optionLabel,
-                selectedFrequency === freq.label && styles.selectedOptionLabel,
-              ]}
-            >
-              {freq.label}
-            </Text>
-          </TouchableOpacity>
+            {form.schedule[index].times.map((time, timeIndex) => (
+              <TouchableOpacity
+                key={`${day}-${timeIndex}`}
+                style={styles.timeButton}
+                onPress={() => {
+                  setForm((prev) => ({
+                    ...prev,
+                    selectedDayIndex: index,
+                    selectedTimeIndex: timeIndex,
+                  }));
+                  setShowTimePicker(true);
+                }}
+              >
+                <View style={styles.timeIconContainer}>
+                  <Ionicons name="time-outline" size={20} color="#1a8e2d" />
+                </View>
+                <Text style={styles.timeButtonText}>{time}</Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    const daySchedule = form.schedule[index];
+                    handleDayScheduleChange(
+                      index,
+                      daySchedule.times.filter((_, i) => i !== timeIndex)
+                    );
+                  }}
+                >
+                  <Ionicons
+                    name="close-circle-outline"
+                    size={24}
+                    color="#666"
+                  />
+                </TouchableOpacity>
+              </TouchableOpacity>
+            ))}
+          </View>
         ))}
       </View>
     );
@@ -316,16 +293,23 @@ export default function AddAttendanceScreen() {
             ]}
             onPress={() => {
               setSelectedDuration(dur.label);
-              setForm((prev: any) => ({ ...prev, duration: dur.label }));
+              setForm((prev) => ({ ...prev, duration: dur.label }));
             }}
           >
+            <View style={styles.optionIcon}>
+              <Ionicons
+                name={dur.icon}
+                size={26}
+                color={selectedDuration === dur.label ? "white" : "#1a8e2d"}
+              />
+            </View>
             <Text
               style={[
                 styles.durationNumber,
                 selectedDuration === dur.label && styles.selectedDurationNumber,
               ]}
             >
-              {dur.value > 0 ? dur.value : "∞"}
+              {dur.value > 0 ? dur.value : dur.label === "Ongoing" ? "∞" : "-"}
             </Text>
             <Text
               style={[
@@ -349,49 +333,13 @@ export default function AddAttendanceScreen() {
                 placeholderTextColor="#999"
                 value={form.customDurationDays}
                 onChangeText={(text) =>
-                  setForm((prev: any) => ({
-                    ...prev,
-                    customDurationDays: text,
-                  }))
+                  setForm((prev) => ({ ...prev, customDurationDays: text }))
                 }
                 keyboardType="numeric"
               />
             </View>
           </View>
         )}
-      </View>
-    );
-  };
-
-  const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
-  const renderDayPicker = () => {
-    return (
-      <View style={{ marginTop: 12 }}>
-        <Text style={[styles.sectionTitle, { marginBottom: 8, marginTop: 0 }]}>
-          Days of week
-        </Text>
-        <View style={styles.daysContainer}>
-          {WEEKDAYS.map((d) => {
-            const selected = (form.days || []).includes(d);
-            return (
-              <TouchableOpacity
-                key={d}
-                style={[styles.dayButton, selected && styles.selectedDayButton]}
-                onPress={() => toggleDay(d)}
-              >
-                <Text
-                  style={[
-                    styles.optionLabel,
-                    selected && styles.selectedOptionLabel,
-                  ]}
-                >
-                  {d}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
       </View>
     );
   };
@@ -462,11 +410,7 @@ export default function AddAttendanceScreen() {
           {/* Schedule */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>How often?</Text>
-            {errors.frequency && (
-              <Text style={styles.errorText}>{errors.frequency}</Text>
-            )}
-            {renderFrequencyOptions()}
-            {form.frequency === "As needed" && renderDayPicker()}
+            {renderScheduleOptions()}
 
             <Text style={styles.sectionTitle}>For how long?</Text>
             {errors.duration && (
@@ -498,72 +442,42 @@ export default function AddAttendanceScreen() {
               />
             )}
 
-            {form.frequency &&
-              (form.frequency !== "As needed" ||
-                (form.frequency === "As needed" && form.days.length > 0)) && (
-                <View style={styles.timesContainer}>
-                  <Text style={styles.timesTitle}>Times</Text>
-                  {form.times.map((time: any, index: number) => (
-                    <TouchableOpacity
-                      key={index}
-                      style={styles.timeButton}
-                      onPress={() => {
-                        // Pass the selected time index
-                        setForm((prev: any) => ({
-                          ...prev,
-                          selectedTimeIndex: index,
-                        }));
-                        setShowTimePicker(true);
-                      }}
-                    >
-                      <View style={styles.timeIconContainer}>
-                        <Ionicons
-                          name="time-outline"
-                          size={20}
-                          color="#1a8e2d"
-                        />
-                      </View>
-                      <Text style={styles.timeButtonText}>
-                        {form.frequency === "As needed"
-                          ? `${form.days[index]} - ${time}`
-                          : form.frequency === "Twice daily"
-                          ? `${index === 0 ? "Morning" : "Evening"} - ${time}`
-                          : time}
-                      </Text>
-                      <Ionicons name="chevron-forward" size={20} color="#666" />
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
+            {errors.schedule && (
+              <Text style={styles.errorText}>{errors.schedule}</Text>
+            )}
 
             {showTimePicker && (
               <DateTimePicker
-                value={(() => {
-                  const selectedIndex = (form as any).selectedTimeIndex || 0;
+                value={() => {
+                  const dayIndex = form.selectedDayIndex ?? 0;
+                  const timeIndex = form.selectedTimeIndex ?? 0;
                   const [hours, minutes] = (
-                    form.times[selectedIndex] || "09:00"
+                    form.schedule[dayIndex]?.times[timeIndex] || "09:00"
                   )
                     .split(":")
                     .map(Number);
                   const date = new Date();
                   date.setHours(hours, minutes, 0, 0);
                   return date;
-                })()}
+                }}
                 mode="time"
                 onChange={(event, date) => {
                   setShowTimePicker(false);
-                  if (date) {
+                  if (date && typeof form.selectedDayIndex === "number") {
                     const newTime = date.toLocaleTimeString("default", {
                       hour: "2-digit",
                       minute: "2-digit",
                       hour12: false,
                     });
-                    setForm((prev: any) => ({
-                      ...prev,
-                      times: prev.times.map((t: any, i: number) =>
-                        i === prev.selectedTimeIndex ? newTime : t
-                      ),
-                    }));
+
+                    const daySchedule = form.schedule[form.selectedDayIndex];
+                    if (daySchedule) {
+                      const newTimes = [...daySchedule.times];
+                      if (typeof form.selectedTimeIndex === "number") {
+                        newTimes[form.selectedTimeIndex] = newTime;
+                      }
+                      handleDayScheduleChange(form.selectedDayIndex, newTimes);
+                    }
                   }
                 }}
               />
@@ -734,6 +648,36 @@ export default function AddAttendanceScreen() {
 }
 
 const styles = StyleSheet.create({
+  scheduleContainer: {
+    marginTop: 10,
+  },
+  daySchedule: {
+    marginBottom: 20,
+    backgroundColor: "white",
+    borderRadius: 16,
+    padding: 15,
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  dayHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  dayName: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#333",
+  },
+  addTimeButton: {
+    padding: 8,
+  },
   container: {
     flex: 1,
     backgroundColor: "#f8f9fa",
@@ -783,7 +727,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 20,
     top: "50%",
-    transform: [{ translateY: -20 }], // Half the height of the button
+    transform: [{ translateY: -20 }],
     width: 40,
     height: 40,
     borderRadius: 20,

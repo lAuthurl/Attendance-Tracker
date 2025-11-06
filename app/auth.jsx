@@ -17,7 +17,7 @@ const { width } = Dimensions.get("window");
 export default function AuthScreen() {
   const router = useRouter();
   const [isAuthenticating, setIsAuthenticating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState(null);
   const [hasBiometrics, setHasBiometrics] = useState(false);
 
   useEffect(() => {
@@ -39,11 +39,11 @@ export default function AuthScreen() {
       const hasHardware = await LocalAuthentication.hasHardwareAsync();
       const supportedTypes =
         await LocalAuthentication.supportedAuthenticationTypesAsync();
-      const hasBiometrics = await LocalAuthentication.isEnrolledAsync();
+      const hasBio = await LocalAuthentication.isEnrolledAsync();
 
       const auth = await LocalAuthentication.authenticateAsync({
         promptMessage:
-          hasHardware && hasBiometrics
+          hasHardware && hasBio
             ? "Use Face ID or Touch ID"
             : "Enter your PIN to access MedRemind",
         fallbackLabel: "Use PIN",

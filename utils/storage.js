@@ -4,33 +4,7 @@ import { DeviceEventEmitter } from "react-native";
 const ATTENDANCES_KEY = "@attendances";
 const ATTENDANCE_HISTORY_KEY = "@attendance_history";
 
-export interface Attendance {
-  id: string;
-  name: string;
-  category: string;
-  times: string[];
-  frequency?: string;
-  days?: string[];
-  startDate: string;
-  duration: string;
-  color: string;
-  reminderEnabled: boolean;
-  currentCapacity: number;
-  totalCapacity: number;
-  capacityAlertAt: number;
-  capacityWarningAt: number;
-  capacityReminder: boolean;
-  lastCapacityUpdateDate?: string;
-}
-
-export interface AttendanceRecord {
-  id: string;
-  attendanceId: string;
-  timestamp: string;
-  taken: boolean;
-}
-
-export async function getAttendances(): Promise<Attendance[]> {
+export async function getAttendances() {
   try {
     const data = await AsyncStorage.getItem(ATTENDANCES_KEY);
     return data ? JSON.parse(data) : [];
@@ -40,7 +14,7 @@ export async function getAttendances(): Promise<Attendance[]> {
   }
 }
 
-export async function addAttendance(attendance: Attendance): Promise<void> {
+export async function addAttendance(attendance) {
   try {
     const attendances = await getAttendances();
     attendances.push(attendance);
@@ -51,9 +25,7 @@ export async function addAttendance(attendance: Attendance): Promise<void> {
   }
 }
 
-export async function updateAttendance(
-  updatedAttendance: Attendance
-): Promise<void> {
+export async function updateAttendance(updatedAttendance) {
   try {
     const attendances = await getAttendances();
     const index = attendances.findIndex((a) => a.id === updatedAttendance.id);
@@ -67,7 +39,7 @@ export async function updateAttendance(
   }
 }
 
-export async function deleteAttendance(id: string): Promise<void> {
+export async function deleteAttendance(id) {
   try {
     const attendances = await getAttendances();
     const updatedAttendances = attendances.filter((a) => a.id !== id);
@@ -81,7 +53,7 @@ export async function deleteAttendance(id: string): Promise<void> {
   }
 }
 
-export async function getAttendanceHistory(): Promise<AttendanceRecord[]> {
+export async function getAttendanceHistory() {
   try {
     const data = await AsyncStorage.getItem(ATTENDANCE_HISTORY_KEY);
     return data ? JSON.parse(data) : [];
@@ -91,7 +63,7 @@ export async function getAttendanceHistory(): Promise<AttendanceRecord[]> {
   }
 }
 
-export async function getTodaysAttendances(): Promise<AttendanceRecord[]> {
+export async function getTodaysAttendances() {
   try {
     const history = await getAttendanceHistory();
     const today = new Date().toDateString();
@@ -104,11 +76,7 @@ export async function getTodaysAttendances(): Promise<AttendanceRecord[]> {
   }
 }
 
-export async function recordAttendance(
-  attendanceId: string,
-  taken: boolean,
-  timestamp: string
-): Promise<void> {
+export async function recordAttendance(attendanceId, taken, timestamp) {
   try {
     const history = await getAttendanceHistory();
     const newDate = new Date(timestamp).toDateString();
@@ -120,7 +88,7 @@ export async function recordAttendance(
         new Date(r.timestamp).toDateString() === newDate
     );
 
-    let prevTaken: boolean | undefined = undefined;
+    let prevTaken = undefined;
 
     if (existingIndex !== -1) {
       prevTaken = history[existingIndex].taken;
@@ -130,7 +98,7 @@ export async function recordAttendance(
         timestamp,
       };
     } else {
-      const newRecord: AttendanceRecord = {
+      const newRecord = {
         id: Math.random().toString(36).substr(2, 9),
         attendanceId,
         timestamp,
@@ -183,7 +151,7 @@ export async function recordAttendance(
   }
 }
 
-export async function clearAllData(): Promise<void> {
+export async function clearAllData() {
   try {
     await AsyncStorage.multiRemove([ATTENDANCES_KEY, ATTENDANCE_HISTORY_KEY]);
   } catch (error) {

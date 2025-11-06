@@ -16,19 +16,13 @@ import { useFocusEffect } from "@react-navigation/native";
 import {
   getAttendanceHistory,
   getAttendances,
-  AttendanceRecord,
-  Attendance,
   clearAllData,
-} from "../../utils/storage";
-
-type EnrichedAttendanceHistory = AttendanceRecord & { attendance?: Attendance };
+} from "../../utils/storage.js";
 
 export default function HistoryScreen() {
   const router = useRouter();
-  const [history, setHistory] = useState<EnrichedAttendanceHistory[]>([]);
-  const [selectedFilter, setSelectedFilter] = useState<
-    "all" | "taken" | "missed"
-  >("all");
+  const [history, setHistory] = useState([]);
+  const [selectedFilter, setSelectedFilter] = useState("all");
 
   const loadHistory = useCallback(async () => {
     try {
@@ -75,7 +69,7 @@ export default function HistoryScreen() {
     }
   });
 
-  const groupHistoryByDate = (records: EnrichedAttendanceHistory[]) => {
+  const groupHistoryByDate = (records) => {
     const grouped = records.reduce((acc, record) => {
       const date = new Date(record.timestamp).toDateString();
       if (!acc[date]) {
@@ -83,7 +77,7 @@ export default function HistoryScreen() {
       }
       acc[date].push(record);
       return acc;
-    }, {} as Record<string, EnrichedAttendanceHistory[]>);
+    }, {});
 
     // Only return dates that have records after filtering
     const nonEmptyGroups = Object.entries(grouped).filter(
@@ -96,7 +90,7 @@ export default function HistoryScreen() {
   };
 
   // Calculate attendance statistics and failure likelihood for a specific attendance
-  const calculateAttendanceStatistics = (attendanceId: string) => {
+  const calculateAttendanceStatistics = (attendanceId) => {
     const attendanceRecords = history.filter(
       (record) => record.attendanceId === attendanceId
     );

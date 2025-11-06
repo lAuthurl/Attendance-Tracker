@@ -13,19 +13,12 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect } from "@react-navigation/native";
-import {
-  getAttendances,
-  Attendance,
-  getAttendanceHistory,
-  AttendanceRecord,
-} from "../../utils/storage";
+import { getAttendances, getAttendanceHistory } from "../../utils/storage.js";
 
 export default function RecordsScreen() {
   const router = useRouter();
-  const [attendances, setAttendances] = useState<Attendance[]>([]);
-  const [attendanceHistory, setAttendanceHistory] = useState<
-    AttendanceRecord[]
-  >([]);
+  const [attendances, setAttendances] = useState([]);
+  const [attendanceHistory, setAttendanceHistory] = useState([]);
 
   const loadAttendances = useCallback(async () => {
     try {
@@ -54,7 +47,7 @@ export default function RecordsScreen() {
     return () => sub.remove();
   }, [loadAttendances]);
 
-  const calculateFailureLikelihood = (attendanceId: string) => {
+  const calculateFailureLikelihood = (attendanceId) => {
     const records = attendanceHistory.filter(
       (record) => record.attendanceId === attendanceId
     );

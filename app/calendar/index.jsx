@@ -14,14 +14,12 @@ import {
   getAttendances,
   getAttendanceHistory,
   recordAttendance,
-  Attendance,
-  AttendanceRecord,
-} from "../../utils/storage";
+} from "../../utils/storage.js";
 import {
-  hasTimePassed,
-  formatTime,
   getGracePeriodRemaining,
-} from "../../utils/dateHelpers";
+  isTooEarly,
+  isMissed,
+} from "../../utils/dateHelpers.js";
 import { useFocusEffect } from "@react-navigation/native";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -29,10 +27,8 @@ const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 export default function CalendarScreen() {
   const router = useRouter();
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [attendances, setAttendances] = useState<Attendance[]>([]);
-  const [attendanceHistory, setAttendanceHistory] = useState<
-    AttendanceRecord[]
-  >([]);
+  const [attendances, setAttendances] = useState([]);
+  const [attendanceHistory, setAttendanceHistory] = useState([]);
 
   const loadData = useCallback(async () => {
     try {
@@ -52,8 +48,7 @@ export default function CalendarScreen() {
       loadData();
     }, [loadData])
   );
-
-  const getDaysInMonth = (date: Date) => {
+  const getDaysInMonth = (date) => {
     const year = date.getFullYear();
     const month = date.getMonth();
     const days = new Date(year, month + 1, 0).getDate();
@@ -62,27 +57,24 @@ export default function CalendarScreen() {
   };
 
   // Determine if an attendance should appear on a particular date.
-  // Uses startDate, duration, frequency and days (for "As needed").
-  const isAttendanceOnDate = (attendance: Attendance, date: Date) => {
+  // Uses startDate, duration and the new schedule (dayNumber/times).
+  const isAttendanceOnDate = (attendance, date) => {
     try {
       const start = new Date(attendance.startDate);
       // Normalize to midnight for comparisons
-      const normalize = (d: Date) =>
+      const normalize = (d) =>
         new Date(d.getFullYear(), d.getMonth(), d.getDate());
       const nd = normalize(date);
       const ns = normalize(start);
 
       // Parse duration like "7 days" or "Ongoing". If missing, assume 1 day.
-      let durationDays = 1;
-      if (attendance.duration) {
+      const durationDays = (() => {
+        if (!attendance.duration) return 1;
         const dur = attendance.duration.toString();
-        if (/ongoing/i.test(dur)) {
-          durationDays = Infinity;
-        } else {
-          const m = dur.match(/(\d+)/);
-          durationDays = m ? Number(m[0]) : 1;
-        }
-      }
+        if (/ongoing/i.test(dur)) return Infinity;
+        const m = dur.match(/(\d+)/);
+        return m ? Number(m[0]) : 1;
+      })();
 
       // Compute end date (inclusive)
       const end =
@@ -94,37 +86,13 @@ export default function CalendarScreen() {
       if (nd < ns) return false;
       if (end && nd > normalize(end)) return false;
 
-      const freq = (attendance.frequency || "").toString();
+      // Check if the day of week is scheduled and has at least one time
+      const dayOfWeek = date.getDay(); // 0-6 for Sunday-Saturday
+      const daySchedule =
+        attendance.schedule &&
+        attendance.schedule.find((d) => d.dayNumber === dayOfWeek);
 
-      // As-needed scheduling uses explicit weekdays stored in attendance.days (e.g. ["Mon","Wed"]).
-      if (freq === "As needed" || attendance.days?.length) {
-        const days: string[] = attendance.days || [];
-        if (days.length === 0) {
-          // If no specific days, treat as available every day in the date range
-          return true;
-        }
-        // Map JS getDay() to Mon/Tue... used in add screen. getDay(): 0=Sun,1=Mon...
-        const weekdayMap = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-        const wd = weekdayMap[nd.getDay()];
-        return days.includes(wd);
-      }
-
-      // Weekly frequencies: show on the same weekday as the start date.
-      if (/weekly/i.test(freq)) {
-        return nd.getDay() === ns.getDay();
-      }
-
-      // Daily frequencies (once/twice daily) — show on any date within the range.
-      if (
-        /daily/i.test(freq) ||
-        /twice daily/i.test(freq) ||
-        /once daily/i.test(freq)
-      ) {
-        return true;
-      }
-
-      // Default: if within date range, show it.
-      return true;
+      return (daySchedule && daySchedule.times && daySchedule.times.length) > 0;
     } catch (e) {
       console.error("isAttendanceOnDate error", e);
       return false;
@@ -134,8 +102,8 @@ export default function CalendarScreen() {
   const { days, firstDay } = getDaysInMonth(selectedDate);
 
   const renderCalendar = () => {
-    const calendar: JSX.Element[] = [];
-    let week: JSX.Element[] = [];
+    const calendar = [];
+    let week = [];
     let totalCells = 0;
 
     // Add empty cells for days before the first day of the month
@@ -216,22 +184,27 @@ export default function CalendarScreen() {
         (record) => record.attendanceId === attendance.id && record.taken
       );
 
-      const isTimePassedForAll = attendance.times.every((time) =>
-        hasTimePassed(time, selectedDate)
-      );
-
-      // Don't automatically mark as missed if it's a future date
       const now = new Date();
       const isFutureDate = selectedDate.toDateString() > now.toDateString();
+      const isPastDate = selectedDate.toDateString() < now.toDateString();
 
-      // If all times have passed for today and not taken, automatically mark as missed
-      if (isTimePassedForAll && !taken && !isFutureDate) {
-        // Auto-record as missed
-        setTimeout(() => {
-          recordAttendance(attendance.id, false, selectedDate.toISOString());
-          loadData();
-        }, 0);
-      }
+      // Determine today's scheduled times for this attendance
+      const daySchedule =
+        attendance.schedule &&
+        attendance.schedule.find((d) => d.dayNumber === selectedDate.getDay());
+      // isMissed returns true when the scheduled time + 30min has passed
+      const isTimePassedForAll =
+        (daySchedule &&
+          daySchedule.times &&
+          daySchedule.times.every((time) => isMissed(time, selectedDate))) ||
+        true;
+
+      // If all scheduled times are more than 3 hours in the future, they are too early to record
+      const allTooEarly =
+        (daySchedule &&
+          daySchedule.times &&
+          daySchedule.times.every((time) => isTooEarly(time, selectedDate))) ||
+        false;
 
       return (
         <View key={attendance.id} style={styles.attendanceCard}>
@@ -245,14 +218,13 @@ export default function CalendarScreen() {
             <Text style={styles.attendanceName}>{attendance.name}</Text>
             <Text style={styles.categoryInfo}>{attendance.category}</Text>
             <Text style={styles.timeText}>
-              {attendance.times.map((time, index) => (
-                <Text key={time}>
-                  {time}
-                  {index < attendance.times.length - 1 ? ", " : ""}
-                </Text>
-              ))}
+              {(function () {
+                const ts = (daySchedule && daySchedule.times) || [];
+                return ts.length ? ts.join(", ") : "No times scheduled";
+              })()}
             </Text>
           </View>
+
           {taken ? (
             // When already recorded show the badge (pressable to undo)
             <View style={{ alignItems: "flex-end" }}>
@@ -271,13 +243,22 @@ export default function CalendarScreen() {
                 <Text style={styles.takenText}>Recorded</Text>
               </TouchableOpacity>
             </View>
+          ) : isPastDate ? (
+            // Selected date is in the past: cannot record, show missed
+            <View style={{ alignItems: "flex-end" }}>
+              <View style={styles.missedBadge}>
+                <Ionicons name="close-circle" size={20} color="#F44336" />
+                <Text style={styles.missedText}>Missed</Text>
+              </View>
+            </View>
           ) : (
-            (() => {
-              // Check grace period for each time
-              const graceMinutes = attendance.times
-                .map((time) => getGracePeriodRemaining(time, selectedDate))
-                .filter((mins) => mins !== null)
-                .sort((a, b) => b! - a!)[0]; // Get the longest remaining grace period
+            (function () {
+              // For today/future dates, check grace period
+              const graceMinutes =
+                ((daySchedule && daySchedule.times) || [])
+                  .map((time) => getGracePeriodRemaining(time, selectedDate))
+                  .filter((mins) => mins !== null)
+                  .sort((a, b) => b - a)[0] || null; // Get the longest remaining grace period
 
               if (graceMinutes !== null) {
                 // Still in grace period
@@ -303,7 +284,9 @@ export default function CalendarScreen() {
                     </TouchableOpacity>
                   </View>
                 );
-              } else if (isTimePassedForAll && !isFutureDate) {
+              }
+              // If all times have passed for today (missed) and it's not a future date, mark missed
+              if (isTimePassedForAll && !isFutureDate) {
                 return (
                   <View style={{ alignItems: "flex-end" }}>
                     <View style={styles.missedBadge}>
@@ -312,28 +295,48 @@ export default function CalendarScreen() {
                     </View>
                   </View>
                 );
-              } else {
+              }
+              // If all scheduled times are too early (more than 3 hours ahead), show not-yet status
+              if (allTooEarly && !isPastDate) {
                 return (
                   <View style={{ alignItems: "flex-end" }}>
-                    <TouchableOpacity
+                    <View
                       style={[
                         styles.recordButton,
-                        { backgroundColor: attendance.color },
+                        { backgroundColor: "#e0e0e0" },
                       ]}
-                      onPress={async () => {
-                        await recordAttendance(
-                          attendance.id,
-                          true,
-                          selectedDate.toISOString()
-                        );
-                        loadData();
-                      }}
                     >
-                      <Text style={styles.recordButtonText}>Record</Text>
-                    </TouchableOpacity>
+                      <Text
+                        style={[styles.recordButtonText, { color: "#777" }]}
+                      >
+                        Not yet
+                      </Text>
+                    </View>
                   </View>
                 );
               }
+
+              // Future date or no grace period: allow recording
+              return (
+                <View style={{ alignItems: "flex-end" }}>
+                  <TouchableOpacity
+                    style={[
+                      styles.recordButton,
+                      { backgroundColor: attendance.color },
+                    ]}
+                    onPress={async () => {
+                      await recordAttendance(
+                        attendance.id,
+                        true,
+                        selectedDate.toISOString()
+                      );
+                      loadData();
+                    }}
+                  >
+                    <Text style={styles.recordButtonText}>Record</Text>
+                  </TouchableOpacity>
+                </View>
+              );
             })()
           )}
         </View>

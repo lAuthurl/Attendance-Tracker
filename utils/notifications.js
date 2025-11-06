@@ -1,6 +1,5 @@
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
-import { Attendance } from "./storage";
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -12,10 +11,8 @@ Notifications.setNotificationHandler({
   }),
 });
 
-export async function registerForPushNotificationsAsync(): Promise<
-  string | null
-> {
-  let token: string | null = null;
+export async function registerForPushNotificationsAsync() {
+  let token = null;
 
   const { status: existingStatus } = await Notifications.getPermissionsAsync();
   let finalStatus = existingStatus;
@@ -53,22 +50,28 @@ export async function registerForPushNotificationsAsync(): Promise<
   }
 }
 
-export async function scheduleAttendanceReminder(
-  attendance: Attendance
-): Promise<string | undefined> {
+export async function scheduleAttendanceReminder(attendance) {
   if (!attendance.reminderEnabled) return;
 
   try {
-    // Schedule notifications for each time
-    for (const time of attendance.times) {
-      const [hours, minutes] = time.split(":").map(Number);
-      const today = new Date();
-      today.setHours(hours, minutes, 0, 0);
+    // Get today's day of week (0-6)
+    const today = new Date();
+    const dayOfWeek = today.getDay();
 
-      // If time has passed for today, schedule for tomorrow
-      if (today < new Date()) {
-        today.setDate(today.getDate() + 1);
-      }
+    // Find schedule for today
+    const todaySchedule = attendance.schedule.find(
+      (s) => s.dayNumber === dayOfWeek
+    );
+    if (!todaySchedule) return;
+
+    // Schedule notifications for each time today
+    for (const time of todaySchedule.times) {
+      const [hours, minutes] = time.split(":").map(Number);
+      const scheduleTime = new Date();
+      scheduleTime.setHours(hours, minutes, 0, 0);
+
+      // If time has passed for today, skip it
+      if (scheduleTime < new Date()) continue;
 
       const identifier = await Notifications.scheduleNotificationAsync({
         content: {
@@ -78,7 +81,7 @@ export async function scheduleAttendanceReminder(
         },
         trigger: {
           channelId: "default",
-          date: today,
+          date: scheduleTime,
         },
       });
 
@@ -90,9 +93,7 @@ export async function scheduleAttendanceReminder(
   }
 }
 
-export async function scheduleCapacityReminder(
-  attendance: Attendance
-): Promise<string | undefined> {
+export async function scheduleCapacityReminder(attendance) {
   if (!attendance.capacityReminder) return;
 
   try {
@@ -115,17 +116,13 @@ export async function scheduleCapacityReminder(
   }
 }
 
-export async function cancelAttendanceReminders(
-  attendanceId: string
-): Promise<void> {
+export async function cancelAttendanceReminders(attendanceId) {
   try {
     const scheduledNotifications =
       await Notifications.getAllScheduledNotificationsAsync();
 
     for (const notification of scheduledNotifications) {
-      const data = notification.content.data as {
-        attendanceId?: string;
-      } | null;
+      const data = notification.content.data || null;
       if (data?.attendanceId === attendanceId) {
         await Notifications.cancelScheduledNotificationAsync(
           notification.identifier
@@ -137,9 +134,7 @@ export async function cancelAttendanceReminders(
   }
 }
 
-export async function updateAttendanceReminders(
-  attendance: Attendance
-): Promise<void> {
+export async function updateAttendanceReminders(attendance) {
   try {
     // Cancel existing reminders
     await cancelAttendanceReminders(attendance.id);
