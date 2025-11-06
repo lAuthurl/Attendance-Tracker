@@ -17,6 +17,11 @@ import {
   Attendance,
   AttendanceRecord,
 } from "../../utils/storage";
+import {
+  hasTimePassed,
+  formatTime,
+  getGracePeriodRemaining,
+} from "../../utils/dateHelpers";
 import { useFocusEffect } from "@react-navigation/native";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -211,6 +216,23 @@ export default function CalendarScreen() {
         (record) => record.attendanceId === attendance.id && record.taken
       );
 
+      const isTimePassedForAll = attendance.times.every((time) =>
+        hasTimePassed(time, selectedDate)
+      );
+
+      // Don't automatically mark as missed if it's a future date
+      const now = new Date();
+      const isFutureDate = selectedDate.toDateString() > now.toDateString();
+
+      // If all times have passed for today and not taken, automatically mark as missed
+      if (isTimePassedForAll && !taken && !isFutureDate) {
+        // Auto-record as missed
+        setTimeout(() => {
+          recordAttendance(attendance.id, false, selectedDate.toISOString());
+          loadData();
+        }, 0);
+      }
+
       return (
         <View key={attendance.id} style={styles.attendanceCard}>
           <View
@@ -222,7 +244,14 @@ export default function CalendarScreen() {
           <View style={styles.attendanceInfo}>
             <Text style={styles.attendanceName}>{attendance.name}</Text>
             <Text style={styles.categoryInfo}>{attendance.category}</Text>
-            <Text style={styles.timeText}>{attendance.times[0]}</Text>
+            <Text style={styles.timeText}>
+              {attendance.times.map((time, index) => (
+                <Text key={time}>
+                  {time}
+                  {index < attendance.times.length - 1 ? ", " : ""}
+                </Text>
+              ))}
+            </Text>
           </View>
           {taken ? (
             // When already recorded show the badge (pressable to undo)
@@ -233,7 +262,7 @@ export default function CalendarScreen() {
                   await recordAttendance(
                     attendance.id,
                     false,
-                    new Date().toISOString()
+                    selectedDate.toISOString()
                   );
                   loadData();
                 }}
@@ -243,24 +272,69 @@ export default function CalendarScreen() {
               </TouchableOpacity>
             </View>
           ) : (
-            <View style={{ alignItems: "flex-end" }}>
-              <TouchableOpacity
-                style={[
-                  styles.recordButton,
-                  { backgroundColor: attendance.color },
-                ]}
-                onPress={async () => {
-                  await recordAttendance(
-                    attendance.id,
-                    true,
-                    new Date().toISOString()
-                  );
-                  loadData();
-                }}
-              >
-                <Text style={styles.recordButtonText}>Record</Text>
-              </TouchableOpacity>
-            </View>
+            (() => {
+              // Check grace period for each time
+              const graceMinutes = attendance.times
+                .map((time) => getGracePeriodRemaining(time, selectedDate))
+                .filter((mins) => mins !== null)
+                .sort((a, b) => b! - a!)[0]; // Get the longest remaining grace period
+
+              if (graceMinutes !== null) {
+                // Still in grace period
+                return (
+                  <View style={{ alignItems: "flex-end" }}>
+                    <TouchableOpacity
+                      style={[
+                        styles.recordButton,
+                        { backgroundColor: attendance.color },
+                      ]}
+                      onPress={async () => {
+                        await recordAttendance(
+                          attendance.id,
+                          true,
+                          selectedDate.toISOString()
+                        );
+                        loadData();
+                      }}
+                    >
+                      <Text style={styles.recordButtonText}>
+                        Record ({graceMinutes}m left)
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              } else if (isTimePassedForAll && !isFutureDate) {
+                return (
+                  <View style={{ alignItems: "flex-end" }}>
+                    <View style={styles.missedBadge}>
+                      <Ionicons name="close-circle" size={20} color="#F44336" />
+                      <Text style={styles.missedText}>Missed</Text>
+                    </View>
+                  </View>
+                );
+              } else {
+                return (
+                  <View style={{ alignItems: "flex-end" }}>
+                    <TouchableOpacity
+                      style={[
+                        styles.recordButton,
+                        { backgroundColor: attendance.color },
+                      ]}
+                      onPress={async () => {
+                        await recordAttendance(
+                          attendance.id,
+                          true,
+                          selectedDate.toISOString()
+                        );
+                        loadData();
+                      }}
+                    >
+                      <Text style={styles.recordButtonText}>Record</Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              }
+            })()
           )}
         </View>
       );
@@ -556,5 +630,19 @@ const styles = StyleSheet.create({
     color: "#1a8e2d",
     fontWeight: "600",
     fontSize: 13,
+  },
+  missedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFEBEE",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  missedText: {
+    color: "#F44336",
+    fontWeight: "600",
+    fontSize: 14,
+    marginLeft: 4,
   },
 });
